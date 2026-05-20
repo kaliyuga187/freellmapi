@@ -213,6 +213,41 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
   });
 });
 
+// Stats grouped by key
+analyticsRouter.get('/by-key', (req: Request, res: Response) => {
+  const range = (req.query.range as string) ?? '7d';
+  const since = getSinceTimestamp(range);
+  const db = getDb();
+
+  const rows = db.prepare(`
+    SELECT
+      r.key_id,
+      k.platform,
+      k.label,
+      COUNT(*) as requests,
+      SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as success_rate,
+      AVG(r.latency_ms) as avg_latency_ms,
+      SUM(r.input_tokens) as total_input_tokens,
+      SUM(r.output_tokens) as total_output_tokens
+    FROM requests r
+    JOIN api_keys k ON k.id = r.key_id
+    WHERE r.created_at >= ? AND r.key_id IS NOT NULL
+    GROUP BY r.key_id
+    ORDER BY requests DESC
+  `).all(since) as any[];
+
+  res.json(rows.map(r => ({
+    keyId: r.key_id,
+    platform: r.platform,
+    label: r.label ?? '',
+    requests: r.requests,
+    successRate: Math.round(r.success_rate * 10) / 10,
+    avgLatencyMs: Math.round(r.avg_latency_ms),
+    totalInputTokens: r.total_input_tokens ?? 0,
+    totalOutputTokens: r.total_output_tokens ?? 0,
+  })));
+});
+
 // Recent errors
 analyticsRouter.get('/errors', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
