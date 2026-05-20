@@ -932,11 +932,11 @@ function migrateModelsV11(db: Database.Database) {
 
 function migrateModelsV12(db: Database.Database) {
   // Add key_id to requests table so we can track per-key API and credit usage.
-  // Use ALTER TABLE ... ADD COLUMN which is idempotent via the try/catch.
-  try {
+  // Check via PRAGMA before ALTER TABLE to avoid swallowing genuine DB errors.
+  const columns = db.prepare(`PRAGMA table_info(requests)`).all() as { name: string }[];
+  const hasKeyId = columns.some(c => c.name === 'key_id');
+  if (!hasKeyId) {
     db.exec(`ALTER TABLE requests ADD COLUMN key_id INTEGER REFERENCES api_keys(id) ON DELETE SET NULL`);
-  } catch {
-    // Column already exists — safe to ignore.
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_requests_key_id ON requests(key_id)`);
 }
