@@ -46,6 +46,7 @@ export function initDb(dbPath?: string): Database.Database {
   migrateModelsV9(db);
   migrateModelsV10(db);
   migrateModelsV11(db);
+  migrateModelsV12(db);
   ensureUnifiedKey(db);
 
   console.log(`Database initialized at ${resolvedPath}`);
@@ -927,6 +928,17 @@ function migrateModelsV11(db: Database.Database) {
     }
   });
   apply();
+}
+
+function migrateModelsV12(db: Database.Database) {
+  // Add key_id to requests table so we can track per-key API and credit usage.
+  // Check via PRAGMA before ALTER TABLE to avoid swallowing genuine DB errors.
+  const columns = db.prepare(`PRAGMA table_info(requests)`).all() as { name: string }[];
+  const hasKeyId = columns.some(c => c.name === 'key_id');
+  if (!hasKeyId) {
+    db.exec(`ALTER TABLE requests ADD COLUMN key_id INTEGER REFERENCES api_keys(id) ON DELETE SET NULL`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_requests_key_id ON requests(key_id)`);
 }
 
 function ensureUnifiedKey(db: Database.Database) {

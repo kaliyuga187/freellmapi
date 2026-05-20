@@ -57,7 +57,18 @@ interface HealthData {
   keys: { id: number; platform: string; status: string; lastCheckedAt: string | null }[]
 }
 
-function UnifiedKeySection() {
+interface KeyUsage {
+  keyId: number
+  platform: string
+  label: string
+  requests: number
+  successRate: number
+  avgLatencyMs: number
+  totalInputTokens: number
+  totalOutputTokens: number
+}
+
+
   const queryClient = useQueryClient()
   const [showKey, setShowKey] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -137,6 +148,12 @@ export default function KeysPage() {
     queryFn: () => apiFetch('/api/keys'),
   })
 
+  const { data: keyUsage = [] } = useQuery<KeyUsage[]>({
+    queryKey: ['key-usage'],
+    queryFn: () => apiFetch('/api/analytics/by-key?range=7d'),
+    refetchInterval: 60000,
+  })
+
   const { data: healthData } = useQuery<HealthData>({
     queryKey: ['health'],
     queryFn: () => apiFetch('/api/health'),
@@ -193,6 +210,9 @@ export default function KeysPage() {
 
   const healthKeyMap = new Map<number, { status: string; lastCheckedAt: string | null }>()
   for (const k of healthData?.keys ?? []) healthKeyMap.set(k.id, k)
+
+  const usageMap = new Map<number, KeyUsage>()
+  for (const u of keyUsage) usageMap.set(u.keyId, u)
 
   const grouped = PLATFORMS.map(p => ({
     ...p,
@@ -296,24 +316,35 @@ export default function KeysPage() {
                       const h = healthKeyMap.get(k.id)
                       const status = h?.status ?? k.status
                       const lastChecked = h?.lastCheckedAt
+                      const usage = usageMap.get(k.id)
                       return (
-                        <div key={k.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                          <span className={`size-1.5 rounded-full flex-shrink-0 ${statusDot[status] ?? statusDot.unknown}`} />
-                          <code className="text-xs font-mono flex-shrink-0">{k.maskedKey}</code>
-                          {k.label && <span className="text-xs text-muted-foreground">{k.label}</span>}
-                          <span className="text-xs text-muted-foreground">{statusLabel[status] ?? status}</span>
-                          <div className="flex-1" />
-                          {lastChecked && (
-                            <span className="text-[11px] text-muted-foreground tabular-nums">
-                              {new Date(lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                        <div key={k.id} className="px-4 py-3 hover:bg-muted/40 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <span className={`size-1.5 rounded-full flex-shrink-0 ${statusDot[status] ?? statusDot.unknown}`} />
+                            <code className="text-xs font-mono flex-shrink-0">{k.maskedKey}</code>
+                            {k.label && <span className="text-xs text-muted-foreground">{k.label}</span>}
+                            <span className="text-xs text-muted-foreground">{statusLabel[status] ?? status}</span>
+                            <div className="flex-1" />
+                            {lastChecked && (
+                              <span className="text-[11px] text-muted-foreground tabular-nums">
+                                {new Date(lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                            <Button variant="ghost" size="xs" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
+                              Check
+                            </Button>
+                            <Button variant="ghost" size="xs" className="text-muted-foreground hover:text-destructive" onClick={() => deleteKey.mutate(k.id)} disabled={deleteKey.isPending}>
+                              Remove
+                            </Button>
+                          </div>
+                          {usage && (
+                            <div className="mt-1.5 ml-4 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground tabular-nums">
+                              <span>{usage.requests.toLocaleString()} req (7d)</span>
+                              <span>{(usage.totalInputTokens + usage.totalOutputTokens).toLocaleString()} tokens</span>
+                              <span>{usage.successRate}% ok</span>
+                              <span>{usage.avgLatencyMs} ms avg</span>
+                            </div>
                           )}
-                          <Button variant="ghost" size="xs" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
-                            Check
-                          </Button>
-                          <Button variant="ghost" size="xs" className="text-muted-foreground hover:text-destructive" onClick={() => deleteKey.mutate(k.id)} disabled={deleteKey.isPending}>
-                            Remove
-                          </Button>
                         </div>
                       )
                     })}
